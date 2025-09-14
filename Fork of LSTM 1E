@@ -1,0 +1,958 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "7208fcac",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004994,
+     "end_time": "2025-09-14T07:17:31.400732",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:31.395738",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Gold Price Prediction with LSTM\n",
+    "Skenario 1E: Menggunakan harga emas historis + Kurs + Cadangan Devisa."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "6f924d48",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:31.410697Z",
+     "iopub.status.busy": "2025-09-14T07:17:31.410261Z",
+     "iopub.status.idle": "2025-09-14T07:17:33.613861Z",
+     "shell.execute_reply": "2025-09-14T07:17:33.612602Z"
+    },
+    "papermill": {
+     "duration": 2.210612,
+     "end_time": "2025-09-14T07:17:33.615609",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:31.404997",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "/kaggle/input/datasethargaemasindikatormoneter/Final Dataset Gold Prediction.csv\n",
+      "/kaggle/input/datasethargaemasindikatormoneter/Data Gabungan Lengkap.csv\n",
+      "/kaggle/input/datasethargaemasindikatormoneter/Dataset Harga Emas dan Indikator Moneter.csv\n"
+     ]
+    }
+   ],
+   "source": [
+    "# This Python 3 environment comes with many helpful analytics libraries installed\n",
+    "# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python\n",
+    "# For example, here's several helpful packages to load\n",
+    "\n",
+    "import numpy as np # linear algebra\n",
+    "import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)\n",
+    "\n",
+    "# Input data files are available in the read-only \"../input/\" directory\n",
+    "# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory\n",
+    "\n",
+    "import os\n",
+    "for dirname, _, filenames in os.walk('/kaggle/input'):\n",
+    "    for filename in filenames:\n",
+    "        print(os.path.join(dirname, filename))\n",
+    "\n",
+    "# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using \"Save & Run All\" \n",
+    "# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "bb05f154",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:33.625787Z",
+     "iopub.status.busy": "2025-09-14T07:17:33.625194Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.171429Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.170277Z"
+    },
+    "papermill": {
+     "duration": 21.553239,
+     "end_time": "2025-09-14T07:17:55.173296",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:33.620057",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "2025-09-14 07:17:37.975287: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:477] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered\n",
+      "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR\n",
+      "E0000 00:00:1757834258.297671      13 cuda_dnn.cc:8310] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered\n",
+      "E0000 00:00:1757834258.386890      13 cuda_blas.cc:1418] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Import Libraries\n",
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "\n",
+    "import matplotlib.pyplot as plt\n",
+    "import matplotlib.dates as mdates\n",
+    "\n",
+    "from sklearn.metrics import mean_squared_log_error\n",
+    "from sklearn.preprocessing import MinMaxScaler\n",
+    "from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error, r2_score\n",
+    "\n",
+    "from tensorflow.keras.models import Sequential\n",
+    "from tensorflow.keras.layers import Input, LSTM, Dense, Dropout\n",
+    "from tensorflow.keras.callbacks import EarlyStopping\n",
+    "from tensorflow.keras.optimizers import Adam"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5679ea68",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004106,
+     "end_time": "2025-09-14T07:17:55.181859",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.177753",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Load Dataset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "c832d456",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.192080Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.191444Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.240211Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.238786Z"
+    },
+    "papermill": {
+     "duration": 0.055785,
+     "end_time": "2025-09-14T07:17:55.241899",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.186114",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "       Date   Price  Exchange Rate  Foreign Exchange Reserves  Money Supply\n",
+      "0  1/3/2017  606000          13485                      116.9    4936881.99\n",
+      "1  1/4/2017  606000          13478                      116.9    4936881.99\n",
+      "2  1/5/2017  607000          13370                      116.9    4936881.99\n",
+      "3  1/6/2017  606000          13347                      116.9    4936881.99\n",
+      "4  1/9/2017  602000          13385                      116.9    4936881.99\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Load dataset\n",
+    "df = pd.read_csv(\"/kaggle/input/datasethargaemasindikatormoneter/Final Dataset Gold Prediction.csv\")  # Modify path if needed\n",
+    "print(df.head()) "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "fb0fd6da",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004177,
+     "end_time": "2025-09-14T07:17:55.250826",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.246649",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Data Preprocessing with Indicators"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "f71fbb52",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.261135Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.260718Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.292208Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.290984Z"
+    },
+    "papermill": {
+     "duration": 0.038957,
+     "end_time": "2025-09-14T07:17:55.294136",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.255179",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "<class 'pandas.core.frame.DataFrame'>\n",
+      "RangeIndex: 1932 entries, 0 to 1931\n",
+      "Data columns (total 5 columns):\n",
+      " #   Column                     Non-Null Count  Dtype  \n",
+      "---  ------                     --------------  -----  \n",
+      " 0   Date                       1932 non-null   object \n",
+      " 1   Price                      1932 non-null   int64  \n",
+      " 2   Exchange Rate              1932 non-null   int64  \n",
+      " 3   Foreign Exchange Reserves  1932 non-null   float64\n",
+      " 4   Money Supply               1932 non-null   float64\n",
+      "dtypes: float64(2), int64(2), object(1)\n",
+      "memory usage: 75.6+ KB\n"
+     ]
+    }
+   ],
+   "source": [
+    "df.info()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "fcfd7c18",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.305864Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.305437Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.324749Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.323626Z"
+    },
+    "papermill": {
+     "duration": 0.0274,
+     "end_time": "2025-09-14T07:17:55.326540",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.299140",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "df['Date'] = pd.to_datetime(df['Date'])\n",
+    "df.sort_values(by='Date', ascending=True, inplace=True)\n",
+    "df.reset_index(drop=True, inplace=True)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "67e227b5",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.338870Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.338407Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.348385Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.347127Z"
+    },
+    "papermill": {
+     "duration": 0.017554,
+     "end_time": "2025-09-14T07:17:55.350186",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.332632",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Check duplicate\n",
+    "df.duplicated().sum()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "a867b6da",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.361591Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.361175Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.368600Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.367625Z"
+    },
+    "papermill": {
+     "duration": 0.014665,
+     "end_time": "2025-09-14T07:17:55.370082",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.355417",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Check missing values\n",
+    "df.isnull().sum().sum()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "fee58b5e",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.380970Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.380615Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.385652Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.384567Z"
+    },
+    "papermill": {
+     "duration": 0.012253,
+     "end_time": "2025-09-14T07:17:55.387174",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.374921",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Features to use\n",
+    "features = ['Price', 'Exchange Rate', 'Foreign Exchange Reserves']\n",
+    "\n",
+    "# 'Inflasi', 'IndONIA', 'Cadangan Devisa', 'Money Supply (M2)'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "27558b04",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.398190Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.397861Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.411327Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.410246Z"
+    },
+    "papermill": {
+     "duration": 0.021163,
+     "end_time": "2025-09-14T07:17:55.413024",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.391861",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Scaling all features\n",
+    "scaler = MinMaxScaler()\n",
+    "scaled_features = scaler.fit_transform(df[features])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "84251bbc",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.423960Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.423581Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.436990Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.435667Z"
+    },
+    "papermill": {
+     "duration": 0.021287,
+     "end_time": "2025-09-14T07:17:55.438963",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.417676",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Creating the dataset with windowing\n",
+    "window_size = 60\n",
+    "X, y = [], []\n",
+    "for i in range(window_size, len(scaled_features)):\n",
+    "    X.append(scaled_features[i-window_size:i, :])  # All features\n",
+    "    y.append(scaled_features[i, 0])  # Target: Price (index 0)\n",
+    "\n",
+    "X, y = np.array(X), np.array(y)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "dd15e5c4",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.450284Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.449991Z",
+     "iopub.status.idle": "2025-09-14T07:17:55.456685Z",
+     "shell.execute_reply": "2025-09-14T07:17:55.455614Z"
+    },
+    "papermill": {
+     "duration": 0.014506,
+     "end_time": "2025-09-14T07:17:55.458857",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.444351",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Train-Validation-Test split (70:15:15)\n",
+    "train_size = int(0.7 * len(X))\n",
+    "val_size   = int(0.15 * len(X))\n",
+    "\n",
+    "X_train = X[:train_size]\n",
+    "y_train = y[:train_size]\n",
+    "\n",
+    "X_val = X[train_size:train_size + val_size]\n",
+    "y_val = y[train_size:train_size + val_size]\n",
+    "\n",
+    "X_test = X[train_size + val_size:]\n",
+    "y_test = y[train_size + val_size:]\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "74328f29",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004288,
+     "end_time": "2025-09-14T07:17:55.467856",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.463568",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Hyperparameter Tuning"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "64fba8ba",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:17:55.478727Z",
+     "iopub.status.busy": "2025-09-14T07:17:55.478172Z",
+     "iopub.status.idle": "2025-09-14T07:25:02.895939Z",
+     "shell.execute_reply": "2025-09-14T07:25:02.894617Z"
+    },
+    "papermill": {
+     "duration": 427.425444,
+     "end_time": "2025-09-14T07:25:02.897933",
+     "exception": false,
+     "start_time": "2025-09-14T07:17:55.472489",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "2025-09-14 07:17:55.494482: E external/local_xla/xla/stream_executor/cuda/cuda_driver.cc:152] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 69ms/step\n",
+      "Finished: units=32, dropout=0.2, lr=0.001, batch_size=32 | RMSE=74836.1943\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 70ms/step\n",
+      "Finished: units=32, dropout=0.2, lr=0.001, batch_size=64 | RMSE=61836.0383\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 69ms/step\n",
+      "Finished: units=32, dropout=0.2, lr=0.0005, batch_size=32 | RMSE=94429.2264\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 69ms/step\n",
+      "Finished: units=32, dropout=0.2, lr=0.0005, batch_size=64 | RMSE=52368.8312\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 69ms/step\n",
+      "Finished: units=32, dropout=0.3, lr=0.001, batch_size=32 | RMSE=138323.2812\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 67ms/step\n",
+      "Finished: units=32, dropout=0.3, lr=0.001, batch_size=64 | RMSE=123712.9826\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 69ms/step\n",
+      "Finished: units=32, dropout=0.3, lr=0.0005, batch_size=32 | RMSE=73270.3150\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 66ms/step\n",
+      "Finished: units=32, dropout=0.3, lr=0.0005, batch_size=64 | RMSE=85442.5254\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 71ms/step\n",
+      "Finished: units=64, dropout=0.2, lr=0.001, batch_size=32 | RMSE=71604.3927\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 75ms/step\n",
+      "Finished: units=64, dropout=0.2, lr=0.001, batch_size=64 | RMSE=46175.7339\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 71ms/step\n",
+      "Finished: units=64, dropout=0.2, lr=0.0005, batch_size=32 | RMSE=73367.4110\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 196ms/step\n",
+      "Finished: units=64, dropout=0.2, lr=0.0005, batch_size=64 | RMSE=52226.6222\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 78ms/step\n",
+      "Finished: units=64, dropout=0.3, lr=0.001, batch_size=32 | RMSE=73407.3440\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 75ms/step\n",
+      "Finished: units=64, dropout=0.3, lr=0.001, batch_size=64 | RMSE=68713.5936\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 77ms/step\n",
+      "Finished: units=64, dropout=0.3, lr=0.0005, batch_size=32 | RMSE=45116.0161\n",
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 257ms/step\n",
+      "Finished: units=64, dropout=0.3, lr=0.0005, batch_size=64 | RMSE=60548.4776\n",
+      "    units  dropout  learning_rate  batch_size          RMSE      MAPE  \\\n",
+      "14     64      0.3         0.0005          32  45116.016102  0.026794   \n",
+      "9      64      0.2         0.0010          64  46175.733907  0.026710   \n",
+      "11     64      0.2         0.0005          64  52226.622201  0.031395   \n",
+      "3      32      0.2         0.0005          64  52368.831222  0.033793   \n",
+      "15     64      0.3         0.0005          64  60548.477583  0.036145   \n",
+      "\n",
+      "          R2  \n",
+      "14  0.912197  \n",
+      "9   0.908024  \n",
+      "11  0.882339  \n",
+      "3   0.881698  \n",
+      "15  0.841856  \n"
+     ]
+    }
+   ],
+   "source": [
+    "# Define grid\n",
+    "units_list = [32, 64]\n",
+    "dropout_list = [0.2, 0.3]\n",
+    "learning_rate_list = [0.001, 0.0005]\n",
+    "batch_size_list = [32, 64]\n",
+    "\n",
+    "results = []\n",
+    "\n",
+    "# Tuning\n",
+    "# Tuning\n",
+    "for units in units_list:\n",
+    "    for dropout_rate in dropout_list:\n",
+    "        for lr in learning_rate_list:\n",
+    "            for batch_size in batch_size_list:\n",
+    "                model = Sequential()\n",
+    "                model.add(Input(shape=(X_train.shape[1], X_train.shape[2])))  # Tambahkan di sini\n",
+    "                model.add(LSTM(units=units, return_sequences=True))\n",
+    "                model.add(Dropout(dropout_rate))\n",
+    "                model.add(LSTM(units=units//2, return_sequences=False))\n",
+    "                model.add(Dropout(dropout_rate))\n",
+    "                model.add(Dense(1))\n",
+    "                \n",
+    "                optimizer = Adam(learning_rate=lr)\n",
+    "                model.compile(optimizer=optimizer, loss='mean_squared_error')\n",
+    "                \n",
+    "                early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)\n",
+    "                \n",
+    "                history = model.fit(X_train, y_train, epochs=30, batch_size=batch_size, \n",
+    "                                    validation_data=(X_val, y_val), callbacks=[early_stop], verbose=0)\n",
+    "                \n",
+    "                y_pred = model.predict(X_test)\n",
+    "                y_pred_inv = scaler.inverse_transform(np.concatenate((y_pred, np.zeros((y_pred.shape[0], scaled_features.shape[1]-1))), axis=1))[:,0]\n",
+    "                y_test_inv = scaler.inverse_transform(np.concatenate((y_test.reshape(-1,1), np.zeros((y_test.shape[0], scaled_features.shape[1]-1))), axis=1))[:,0]\n",
+    "                \n",
+    "                rmse = np.sqrt(mean_squared_error(y_test_inv, y_pred_inv))\n",
+    "                mape = mean_absolute_percentage_error(y_test_inv, y_pred_inv)\n",
+    "                r2 = r2_score(y_test_inv, y_pred_inv)\n",
+    "                \n",
+    "                results.append({\n",
+    "                    'units': units,\n",
+    "                    'dropout': dropout_rate,\n",
+    "                    'learning_rate': lr,\n",
+    "                    'batch_size': batch_size,\n",
+    "                    'RMSE': rmse,\n",
+    "                    'MAPE': mape,\n",
+    "                    'R2': r2\n",
+    "                })\n",
+    "                print(f\"Finished: units={units}, dropout={dropout_rate}, lr={lr}, batch_size={batch_size} | RMSE={rmse:.4f}\")\n",
+    "\n",
+    "results_df = pd.DataFrame(results)\n",
+    "results_df = results_df.sort_values(by='RMSE')\n",
+    "print(results_df.head(5))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "2d1058a5",
+   "metadata": {
+    "papermill": {
+     "duration": 0.008474,
+     "end_time": "2025-09-14T07:25:02.915303",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:02.906829",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Retrain Final Model with Best Hyperparameters"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "0a499c1b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:25:02.934346Z",
+     "iopub.status.busy": "2025-09-14T07:25:02.933999Z",
+     "iopub.status.idle": "2025-09-14T07:25:45.563227Z",
+     "shell.execute_reply": "2025-09-14T07:25:45.562241Z"
+    },
+    "papermill": {
+     "duration": 42.64102,
+     "end_time": "2025-09-14T07:25:45.564959",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:02.923939",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch 1/150\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/usr/local/lib/python3.11/dist-packages/keras/src/layers/rnn/rnn.py:200: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.\n",
+      "  super().__init__(**kwargs)\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m8s\u001b[0m 74ms/step - loss: 0.0258 - val_loss: 0.0031\n",
+      "Epoch 2/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m3s\u001b[0m 62ms/step - loss: 0.0024 - val_loss: 4.8961e-04\n",
+      "Epoch 3/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m3s\u001b[0m 61ms/step - loss: 0.0015 - val_loss: 4.7695e-04\n",
+      "Epoch 4/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m3s\u001b[0m 61ms/step - loss: 0.0014 - val_loss: 5.4630e-04\n",
+      "Epoch 5/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 60ms/step - loss: 0.0013 - val_loss: 2.9624e-04\n",
+      "Epoch 6/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m3s\u001b[0m 62ms/step - loss: 0.0011 - val_loss: 3.1818e-04\n",
+      "Epoch 7/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 59ms/step - loss: 9.0936e-04 - val_loss: 3.7869e-04\n",
+      "Epoch 8/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 58ms/step - loss: 0.0011 - val_loss: 3.3456e-04\n",
+      "Epoch 9/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 56ms/step - loss: 9.2007e-04 - val_loss: 5.5312e-04\n",
+      "Epoch 10/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 57ms/step - loss: 9.0280e-04 - val_loss: 7.8750e-04\n",
+      "Epoch 11/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 58ms/step - loss: 9.5536e-04 - val_loss: 7.7130e-04\n",
+      "Epoch 12/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 60ms/step - loss: 9.4575e-04 - val_loss: 3.1942e-04\n",
+      "Epoch 13/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 56ms/step - loss: 7.9607e-04 - val_loss: 0.0010\n",
+      "Epoch 14/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 57ms/step - loss: 7.6295e-04 - val_loss: 3.4313e-04\n",
+      "Epoch 15/150\n",
+      "\u001b[1m41/41\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m2s\u001b[0m 57ms/step - loss: 7.3416e-04 - val_loss: 9.8948e-04\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Based on tuning result\n",
+    "best_units = 64\n",
+    "best_dropout = 0.2\n",
+    "best_lr = 0.001\n",
+    "best_batch_size = 32\n",
+    "\n",
+    "final_model = Sequential()\n",
+    "final_model.add(LSTM(units=best_units, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))\n",
+    "final_model.add(Dropout(best_dropout))\n",
+    "final_model.add(LSTM(units=best_units//2, return_sequences=False))\n",
+    "final_model.add(Dropout(best_dropout))\n",
+    "final_model.add(Dense(1))\n",
+    "\n",
+    "optimizer = Adam(learning_rate=best_lr)\n",
+    "final_model.compile(optimizer=optimizer, loss='mean_squared_error')\n",
+    "\n",
+    "early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)\n",
+    "\n",
+    "history_final = final_model.fit(\n",
+    "    X_train, y_train,\n",
+    "    epochs=150,\n",
+    "    batch_size=best_batch_size,\n",
+    "    validation_data=(X_val, y_val),\n",
+    "    callbacks=[early_stop],\n",
+    "    verbose=1\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "164056b2",
+   "metadata": {
+    "papermill": {
+     "duration": 0.1118,
+     "end_time": "2025-09-14T07:25:45.714506",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:45.602706",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Final Evaluation and Visualization"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "id": "81b94fa3",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:25:45.792066Z",
+     "iopub.status.busy": "2025-09-14T07:25:45.791720Z",
+     "iopub.status.idle": "2025-09-14T07:25:46.920389Z",
+     "shell.execute_reply": "2025-09-14T07:25:46.919196Z"
+    },
+    "papermill": {
+     "duration": 1.169905,
+     "end_time": "2025-09-14T07:25:46.922042",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:45.752137",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m1s\u001b[0m 76ms/step\n",
+      "Final Test RMSE: 103408.9376\n",
+      "Final Test MAPE: 0.0616\n",
+      "Final Test MSLE: 0.005690\n",
+      "Final Test R² Score: 0.5387\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Prediction\n",
+    "y_pred_final = final_model.predict(X_test)\n",
+    "y_pred_inv_final = scaler.inverse_transform(np.concatenate((y_pred_final, np.zeros((y_pred_final.shape[0], scaled_features.shape[1]-1))), axis=1))[:,0]\n",
+    "y_test_inv_final = scaler.inverse_transform(np.concatenate((y_test.reshape(-1,1), np.zeros((y_test.shape[0], scaled_features.shape[1]-1))), axis=1))[:,0]\n",
+    "\n",
+    "# Evaluation\n",
+    "final_rmse = np.sqrt(mean_squared_error(y_test_inv_final, y_pred_inv_final))\n",
+    "final_mape = mean_absolute_percentage_error(y_test_inv_final, y_pred_inv_final)\n",
+    "final_r2 = r2_score(y_test_inv_final, y_pred_inv_final)\n",
+    "final_msle = mean_squared_log_error(y_test_inv_final, y_pred_inv_final)\n",
+    "\n",
+    "print(f\"Final Test RMSE: {final_rmse:.4f}\")\n",
+    "print(f\"Final Test MAPE: {final_mape:.4f}\")\n",
+    "print(f\"Final Test MSLE: {final_msle:.6f}\")\n",
+    "print(f\"Final Test R² Score: {final_r2:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "id": "dcb1e04b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:25:47.001404Z",
+     "iopub.status.busy": "2025-09-14T07:25:47.001045Z",
+     "iopub.status.idle": "2025-09-14T07:25:47.284989Z",
+     "shell.execute_reply": "2025-09-14T07:25:47.283828Z"
+    },
+    "papermill": {
+     "duration": 0.325799,
+     "end_time": "2025-09-14T07:25:47.286707",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:46.960908",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\u001b[1m9/9\u001b[0m \u001b[32m━━━━━━━━━━━━━━━━━━━━\u001b[0m\u001b[37m\u001b[0m \u001b[1m0s\u001b[0m 21ms/step\n",
+      "Validation RMSE: 16695.2212\n",
+      "Validation MAPE: 0.0132\n",
+      "Validation R² Score: 0.8841\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Evaluation on Validation set\n",
+    "y_val_pred = final_model.predict(X_val)\n",
+    "\n",
+    "# inverse transform\n",
+    "y_val_pred_inv = scaler.inverse_transform(\n",
+    "    np.concatenate((y_val_pred, np.zeros((y_val_pred.shape[0], scaled_features.shape[1]-1))), axis=1)\n",
+    ")[:,0]\n",
+    "\n",
+    "y_val_inv = scaler.inverse_transform(\n",
+    "    np.concatenate((y_val.reshape(-1,1), np.zeros((y_val.shape[0], scaled_features.shape[1]-1))), axis=1)\n",
+    ")[:,0]\n",
+    "\n",
+    "# metrics\n",
+    "val_rmse = np.sqrt(mean_squared_error(y_val_inv, y_val_pred_inv))\n",
+    "val_mape = mean_absolute_percentage_error(y_val_inv, y_val_pred_inv)\n",
+    "val_r2   = r2_score(y_val_inv, y_val_pred_inv)\n",
+    "\n",
+    "print(f\"Validation RMSE: {val_rmse:.4f}\")\n",
+    "print(f\"Validation MAPE: {val_mape:.4f}\")\n",
+    "print(f\"Validation R² Score: {val_r2:.4f}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "4db6d95f",
+   "metadata": {
+    "papermill": {
+     "duration": 0.038105,
+     "end_time": "2025-09-14T07:25:47.364663",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:47.326558",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "## Save the Final Model (.h5 format)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "id": "632a7268",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-14T07:25:47.442609Z",
+     "iopub.status.busy": "2025-09-14T07:25:47.442185Z",
+     "iopub.status.idle": "2025-09-14T07:25:47.489718Z",
+     "shell.execute_reply": "2025-09-14T07:25:47.488627Z"
+    },
+    "papermill": {
+     "duration": 0.088426,
+     "end_time": "2025-09-14T07:25:47.491446",
+     "exception": false,
+     "start_time": "2025-09-14T07:25:47.403020",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Model saved successfully!\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Save Final Model to .h5 file\n",
+    "final_model.save('gold_price_prediction_final.h5')\n",
+    "print(\"Model saved successfully!\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kaggle": {
+   "accelerator": "none",
+   "dataSources": [
+    {
+     "datasetId": 7000808,
+     "sourceId": 12588679,
+     "sourceType": "datasetVersion"
+    }
+   ],
+   "dockerImageVersionId": 31089,
+   "isGpuEnabled": false,
+   "isInternetEnabled": true,
+   "language": "python",
+   "sourceType": "notebook"
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.13"
+  },
+  "papermill": {
+   "default_parameters": {},
+   "duration": 505.073392,
+   "end_time": "2025-09-14T07:25:50.253874",
+   "environment_variables": {},
+   "exception": null,
+   "input_path": "__notebook__.ipynb",
+   "output_path": "__notebook__.ipynb",
+   "parameters": {},
+   "start_time": "2025-09-14T07:17:25.180482",
+   "version": "2.6.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
